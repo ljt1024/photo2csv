@@ -60,7 +60,7 @@ DEFAULT_CSV = DEFAULT_OUTPUT_DIR / DEFAULT_CSV_NAME
 DEFAULT_IMAGES_DIR = DEFAULT_OUTPUT_DIR / DEFAULT_IMAGES_DIR_NAME
 DEFAULT_PLATFORM = "pdd"
 PLATFORM_EXAMPLES = ("pdd", "ks", "dy", "jd", "xhs")
-DEFAULT_MODEL = os.environ.get("QWEN_MODEL") or os.environ.get("DASHSCOPE_MODEL") or "qwen3.7-plus"
+DEFAULT_MODEL = os.environ.get("QWEN_MODEL") or os.environ.get("DASHSCOPE_MODEL") or "qwen3-vl-plus"
 DASHSCOPE_API_BASE = (
     os.environ.get("QWEN_API_BASE")
     or os.environ.get("DASHSCOPE_API_BASE")
@@ -78,6 +78,9 @@ CATEGORIES = (
     "服装鞋包",
     "宠物用品",
 )
+
+ERROR_TITLE = "识别失败"
+MAX_ERROR_REMARK_LENGTH = 800
 
 EXPECTED_FIELDS = (
     "image_id",
@@ -169,6 +172,24 @@ class RecognitionResult:
             "capture_time": capture_time,
             "remark": self.remark,
         }
+
+
+def error_recognition_result(message: str) -> RecognitionResult:
+    cleaned = clean_text(message)
+    if len(cleaned) > MAX_ERROR_REMARK_LENGTH:
+        cleaned = f"{cleaned[:MAX_ERROR_REMARK_LENGTH]}..."
+
+    return RecognitionResult(
+        category="",
+        has_sku_info=0,
+        title=ERROR_TITLE,
+        brand="",
+        sku_spec="",
+        price="",
+        price_type="",
+        shop_name="",
+        remark=f"识别错误：{cleaned}",
+    )
 
 
 @dataclass(frozen=True)
@@ -501,9 +522,12 @@ def load_manual_results(path: Path) -> list[RecognitionResult]:
 
     results: list[RecognitionResult] = []
     for index, item in enumerate(raw, start=1):
-        if not isinstance(item, dict):
-            raise AppError(f"--manual-json 第 {index} 组不是 JSON 对象")
-        results.append(RecognitionResult.from_mapping(item))
+        try:
+            if not isinstance(item, dict):
+                raise AppError(f"--manual-json 第 {index} 组不是 JSON 对象")
+            results.append(RecognitionResult.from_mapping(item))
+        except Exception as exc:
+            results.append(error_recognition_result(f"--manual-json 第 {index} 组解析失败：{format_exception_message(exc)}"))
     return results
 
 
@@ -731,18 +755,35 @@ def recognize_groups(
 ) -> list[RecognitionResult]:
     if manual_results_path:
         results = load_manual_results(manual_results_path)
-        if len(results) != len(groups):
-            raise AppError(f"--manual-json 组数为 {len(results)}，图片组数为 {len(groups)}，二者不一致")
+        if len(results) < len(groups):
+            for index in range(len(results) + 1, len(groups) + 1):
+                results.append(error_recognition_result(f"--manual-json 缺少第 {index} 组识别结果"))
+        elif len(results) > len(groups):
+            print(f"警告：--manual-json 组数为 {len(results)}，图片组数为 {len(groups)}，多余结果已忽略", file=sys.stderr)
+            results = results[: len(groups)]
         return results
 
     if recognizer is None:
-        raise AppError("缺少 DASHSCOPE_API_KEY。请设置千问 API Key，或使用 --manual-json 导入识别结果")
+        message = "缺少 DASHSCOPE_API_KEY。请设置千问 API Key，或使用 --manual-json 导入识别结果"
+        print(f"警告：{message}；将为每组写入错误提示并继续保存图片", file=sys.stderr)
+        return [error_recognition_result(message) for _ in groups]
 
     results: list[RecognitionResult] = []
     for index, group in enumerate(groups, start=1):
         print(f"正在识别第 {index}/{len(groups)} 组：{group[0].name}, {group[1].name}, {group[2].name}")
-        results.append(recognizer.recognize(group))
+        try:
+            results.append(recognizer.recognize(group))
+        except Exception as exc:
+            message = format_exception_message(exc)
+            print(f"警告：第 {index}/{len(groups)} 组识别失败，已写入错误提示并继续：{message}", file=sys.stderr)
+            results.append(error_recognition_result(message))
     return results
+
+
+def format_exception_message(exc: BaseException) -> str:
+    if isinstance(exc, AppError):
+        return clean_text(str(exc))
+    return clean_text(f"{type(exc).__name__}: {exc}")
 
 
 def read_qwen_api_key() -> str:
@@ -990,6 +1031,9 @@ def print_summary(prepared: Sequence[PreparedGroup], *, csv_path: Path, dry_run:
     print(f"\n{action} {len(prepared)} 组，目标 CSV：{csv_path}")
     for item in prepared:
         row = item.csv_row
+        if row["remark"].startswith("识别错误："):
+            print(f" - {item.image_id}: {ERROR_TITLE} | {row['remark']}")
+            continue
         print(
             " - "
             f"{item.image_id}: {row['category']} | {row['title']} | "

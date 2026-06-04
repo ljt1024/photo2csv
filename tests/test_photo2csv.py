@@ -162,6 +162,61 @@ class Photo2CsvTests(unittest.TestCase):
             self.assertEqual(result.sku_spec, "5斤")
             self.assertEqual(result.price, "29.9")
 
+    def test_manual_json_invalid_item_becomes_error_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = Path(tmp) / "result.json"
+            json_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "category": "不存在的品类",
+                            "has_sku_info": 0,
+                            "title": "坏数据",
+                            "price": "9.9",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = photo2csv.load_manual_results(json_path)[0]
+
+            self.assertEqual(result.title, photo2csv.ERROR_TITLE)
+            self.assertIn("识别错误", result.remark)
+            self.assertIn("不存在的品类", result.remark)
+
+    def test_recognize_groups_keeps_order_when_one_group_fails(self):
+        class FakeRecognizer:
+            def __init__(self):
+                self.calls = 0
+
+            def recognize(self, _group):
+                self.calls += 1
+                if self.calls == 2:
+                    raise photo2csv.AppError("第二组 JSON 错误")
+                return photo2csv.RecognitionResult(
+                    category="食品饮料",
+                    has_sku_info=0,
+                    title=f"成功{self.calls}",
+                    brand="",
+                    sku_spec="",
+                    price="9.9",
+                    price_type="原价",
+                    shop_name="测试店",
+                )
+
+        groups = [
+            (Path("1-1.jpg"), Path("1-2.jpg"), Path("1-3.jpg")),
+            (Path("2-1.jpg"), Path("2-2.jpg"), Path("2-3.jpg")),
+            (Path("3-1.jpg"), Path("3-2.jpg"), Path("3-3.jpg")),
+        ]
+
+        results = photo2csv.recognize_groups(groups, manual_results_path=None, recognizer=FakeRecognizer())
+
+        self.assertEqual([result.title for result in results], ["成功1", photo2csv.ERROR_TITLE, "成功3"])
+        self.assertIn("第二组 JSON 错误", results[1].remark)
+
     def test_pet_supplies_category_is_supported(self):
         result = photo2csv.RecognitionResult.from_mapping(
             {
