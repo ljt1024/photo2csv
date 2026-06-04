@@ -6,7 +6,7 @@
 - 调用视觉模型识别标题、品牌、价格、店铺、SKU、品类等字段
 - 运行时输入平台标识，例如 `pdd`、`ks`、`dy`、`jd`、`xhs`
 - 自动生成 `平台标识 + 4位数字` 形式的 `image_id`，例如 `pdd0001`、`ks0001`
-- 将每组第一张图片保存到当前工程目录的 `images/平台标识NNNN.png`
+- 将每组第一张图片保存到当前工程目录的 `images/平台标识NNNN.jpg` 或 `.png`，格式跟随输入首图
 - 追加数据到当前工程目录的 `product_data_20260525.csv`
 - CSV 使用 UTF-8 带 BOM 编码，兼容 Excel 的「CSV UTF-8」格式，避免中文乱码
 - 写入前自动备份 CSV
@@ -17,13 +17,13 @@
 pip install -r requirements.txt
 ```
 
-如果首图本身已经是 PNG，脚本不一定需要 Pillow；但遇到 JPG/WebP 等格式时，需要 Pillow 转成需求里的 `.png`。
+首图会按输入格式保存：JPG/JPEG 输出 `.jpg`，PNG 输出 `.png`，不会强制转成 PNG。
 
 ## 使用千问视觉识别
 
 ```bash
 export DASHSCOPE_API_KEY="你的百炼 API Key"
-python photo2csv.py ./img1.png ./img2.png ./img3.png
+python photo2csv.py ./img1.jpg ./img2.jpg ./img3.jpg
 ```
 
 也可以把 `DASHSCOPE_API_KEY=...` 放在项目根目录的 `.env` 文件中。脚本会自动读取 `.env`，并且 `.env` 已加入 `.gitignore`。
@@ -82,7 +82,7 @@ python photo2csv.py /Users/ljt/Downloads/test.zip --platform ks
 photo2csv/
 ├── product_data_20260525.csv
 └── images/
-    └── ks0001.png
+    └── ks0001.jpg
 ```
 
 如果当前工程目录还没有 `product_data_20260525.csv`，脚本会先从 `/Users/ljt/Downloads/product_data_20260525.csv` 复制一份作为模板，再追加识别结果，这样编号会继续沿用已有数据。

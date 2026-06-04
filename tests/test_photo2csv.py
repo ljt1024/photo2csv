@@ -97,7 +97,40 @@ class Photo2CsvTests(unittest.TestCase):
         self.assertEqual(photo2csv.image_id_for(4, "ks"), "ks0004")
         self.assertEqual(photo2csv.image_id_for(21, "dy"), "dy0021")
 
+    def test_image_to_data_url_uses_jpeg_mime_type_for_jpg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "1-1.jpg"
+            path.write_bytes(b"fake jpg bytes")
+
+            data_url = photo2csv.image_to_data_url(path)
+
+            self.assertTrue(data_url.startswith("data:image/jpeg;base64,"))
+
     def test_prepare_groups_uses_jpg_destination(self):
+        result = photo2csv.RecognitionResult(
+            category="食品饮料",
+            has_sku_info=0,
+            title="测试商品",
+            brand="",
+            sku_spec="",
+            price="9.9",
+            price_type="原价",
+            shop_name="测试店",
+        )
+
+        prepared = photo2csv.prepare_groups(
+            [(Path("1-1.jpg"), Path("1-2.jpg"), Path("1-3.jpg"))],
+            [result],
+            csv_path=Path("missing.csv"),
+            images_dir=Path("images"),
+            platform="ks",
+            capture_time="20260604",
+            start_number=1,
+        )
+
+        self.assertEqual(prepared[0].destination_image, Path("images/ks0001.jpg"))
+
+    def test_prepare_groups_preserves_png_destination(self):
         result = photo2csv.RecognitionResult(
             category="食品饮料",
             has_sku_info=0,
@@ -119,7 +152,42 @@ class Photo2CsvTests(unittest.TestCase):
             start_number=1,
         )
 
+        self.assertEqual(prepared[0].destination_image, Path("images/ks0001.png"))
+
+    def test_prepare_groups_normalizes_jpeg_destination_to_jpg(self):
+        result = photo2csv.RecognitionResult(
+            category="食品饮料",
+            has_sku_info=0,
+            title="测试商品",
+            brand="",
+            sku_spec="",
+            price="9.9",
+            price_type="原价",
+            shop_name="测试店",
+        )
+
+        prepared = photo2csv.prepare_groups(
+            [(Path("1-1.jpeg"), Path("1-2.jpeg"), Path("1-3.jpeg"))],
+            [result],
+            csv_path=Path("missing.csv"),
+            images_dir=Path("images"),
+            platform="ks",
+            capture_time="20260604",
+            start_number=1,
+        )
+
         self.assertEqual(prepared[0].destination_image, Path("images/ks0001.jpg"))
+
+    def test_save_first_image_copies_jpg_without_converting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "1-1.jpg"
+            destination = Path(tmp) / "images" / "ks0001.jpg"
+            source.write_bytes(b"fake jpg bytes")
+
+            photo2csv.save_first_image(source, destination, move=False)
+
+            self.assertTrue(source.exists())
+            self.assertEqual(destination.read_bytes(), b"fake jpg bytes")
 
     def test_group_paths_requires_multiple_of_three(self):
         paths = [Path("1.png"), Path("2.png"), Path("3.png"), Path("4.png")]

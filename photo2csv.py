@@ -846,7 +846,7 @@ def prepare_groups(
 
     for group, result in zip(groups, results):
         image_id = image_id_for(number, platform)
-        destination = images_dir / f"{image_id}.png"
+        destination = images_dir / f"{image_id}{saved_image_suffix(group[0])}"
         if destination.exists() and group[0].resolve() != destination.resolve():
             raise AppError(f"目标图片已存在，避免覆盖：{destination}")
 
@@ -881,37 +881,26 @@ def backup_csv(csv_path: Path) -> Path | None:
 
 def save_first_images(prepared_groups: Sequence[PreparedGroup], *, move: bool) -> None:
     for prepared in prepared_groups:
-        save_as_png(prepared.source_images[0], prepared.destination_image, move=move)
+        save_first_image(prepared.source_images[0], prepared.destination_image, move=move)
 
 
-def save_as_png(source: Path, destination: Path, *, move: bool) -> None:
+def saved_image_suffix(source: Path) -> str:
+    suffix = source.suffix.lower()
+    if suffix == ".jpeg":
+        return ".jpg"
+    return suffix
+
+
+def save_first_image(source: Path, destination: Path, *, move: bool) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     if source.resolve() == destination.resolve():
         return
 
-    if source.suffix.lower() == ".png":
-        if move:
-            shutil.move(str(source), str(destination))
-        else:
-            shutil.copy2(source, destination)
-        return
-
-    try:
-        from PIL import Image
-    except ImportError as exc:
-        raise AppError(
-            f"第一张图不是 PNG，需要安装 Pillow 才能转成 .png：{source}\n"
-            "请运行：pip install -r requirements.txt"
-        ) from exc
-
-    with Image.open(source) as image:
-        if image.mode not in {"RGB", "RGBA"}:
-            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-        image.save(destination, "PNG")
-
     if move:
-        source.unlink()
+        shutil.move(str(source), str(destination))
+    else:
+        shutil.copy2(source, destination)
 
 
 def append_rows(csv_path: Path, rows: Sequence[dict[str, str]], fieldnames: Sequence[str]) -> None:
