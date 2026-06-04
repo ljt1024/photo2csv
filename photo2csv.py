@@ -916,6 +916,8 @@ def save_as_png(source: Path, destination: Path, *, move: bool) -> None:
 def append_rows(csv_path: Path, rows: Sequence[dict[str, str]], fieldnames: Sequence[str]) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     should_write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+    if not should_write_header:
+        ensure_trailing_newline(csv_path)
 
     with csv_path.open("a", encoding="utf-8", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
@@ -923,6 +925,16 @@ def append_rows(csv_path: Path, rows: Sequence[dict[str, str]], fieldnames: Sequ
             writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+
+def ensure_trailing_newline(path: Path) -> None:
+    if not path.exists() or path.stat().st_size == 0:
+        return
+
+    with path.open("rb+") as file:
+        file.seek(-1, os.SEEK_END)
+        if file.read(1) not in {b"\n", b"\r"}:
+            file.write(b"\n")
 
 
 def resolve_output_paths(args: argparse.Namespace) -> tuple[Path, Path, Path | None]:

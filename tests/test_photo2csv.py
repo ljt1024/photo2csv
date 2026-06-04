@@ -95,6 +95,30 @@ class Photo2CsvTests(unittest.TestCase):
         self.assertEqual(photo2csv.image_id_for(4, "ks"), "ks0004")
         self.assertEqual(photo2csv.image_id_for(21, "dy"), "dy0021")
 
+    def test_prepare_groups_uses_jpg_destination(self):
+        result = photo2csv.RecognitionResult(
+            category="食品饮料",
+            has_sku_info=0,
+            title="测试商品",
+            brand="",
+            sku_spec="",
+            price="9.9",
+            price_type="原价",
+            shop_name="测试店",
+        )
+
+        prepared = photo2csv.prepare_groups(
+            [(Path("1-1.png"), Path("1-2.png"), Path("1-3.png"))],
+            [result],
+            csv_path=Path("missing.csv"),
+            images_dir=Path("images"),
+            platform="ks",
+            capture_time="20260604",
+            start_number=1,
+        )
+
+        self.assertEqual(prepared[0].destination_image, Path("images/ks0001.jpg"))
+
     def test_group_paths_requires_multiple_of_three(self):
         paths = [Path("1.png"), Path("2.png"), Path("3.png"), Path("4.png")]
 
@@ -264,6 +288,40 @@ class Photo2CsvTests(unittest.TestCase):
             self.assertEqual(reader.fieldnames, list(photo2csv.EXPECTED_FIELDS))
             self.assertEqual(rows[0]["image_id"], "pdd0021")
             self.assertEqual(rows[0]["capture_time"], "20260601")
+
+    def test_append_rows_starts_new_line_when_existing_csv_lacks_final_newline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "products.csv"
+            existing_row = "pdd0001,pdd,食品饮料,0,旧商品,旧品牌,,10,原价,旧店,20260601,"
+            csv_path.write_text(
+                ",".join(photo2csv.EXPECTED_FIELDS) + "\n" + existing_row,
+                encoding="utf-8",
+            )
+            row = {
+                "image_id": "pdd0002",
+                "platform": "pdd",
+                "category": "食品饮料",
+                "has_sku_info": "0",
+                "title": "新商品",
+                "brand": "新品牌",
+                "sku_spec": "",
+                "price": "12.5",
+                "price_type": "原价",
+                "shop_name": "新店",
+                "capture_time": "20260602",
+                "remark": "",
+            }
+
+            photo2csv.append_rows(csv_path, [row], photo2csv.EXPECTED_FIELDS)
+
+            content = csv_path.read_text(encoding="utf-8")
+            self.assertIn("\npdd0002,", content)
+            self.assertTrue(content.endswith("\n"))
+            with csv_path.open("r", encoding="utf-8", newline="") as file:
+                reader = csv.DictReader(file)
+                rows = list(reader)
+
+            self.assertEqual([row["image_id"] for row in rows], ["pdd0001", "pdd0002"])
 
 
 if __name__ == "__main__":
