@@ -38,7 +38,8 @@ class Photo2CsvTests(unittest.TestCase):
 
             self.assertEqual(seeded, target_csv)
             self.assertTrue(target_csv.exists())
-            self.assertEqual(target_csv.read_text(encoding="utf-8"), template_csv.read_text(encoding="utf-8"))
+            self.assertTrue(target_csv.read_bytes().startswith(photo2csv.UTF8_BOM))
+            self.assertEqual(target_csv.read_text(encoding="utf-8-sig"), template_csv.read_text(encoding="utf-8"))
 
     def test_ensure_output_targets_creates_csv_and_images_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -51,6 +52,7 @@ class Photo2CsvTests(unittest.TestCase):
 
             self.assertEqual(seeded, target_csv)
             self.assertTrue(target_csv.exists())
+            self.assertTrue(target_csv.read_bytes().startswith(photo2csv.UTF8_BOM))
             self.assertTrue(images_dir.is_dir())
 
     def test_load_env_file_does_not_override_existing_env(self):
@@ -281,7 +283,8 @@ class Photo2CsvTests(unittest.TestCase):
 
             photo2csv.append_rows(csv_path, [row], photo2csv.EXPECTED_FIELDS)
 
-            with csv_path.open("r", encoding="utf-8", newline="") as file:
+            self.assertTrue(csv_path.read_bytes().startswith(photo2csv.UTF8_BOM))
+            with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
                 reader = csv.DictReader(file)
                 rows = list(reader)
 
@@ -314,14 +317,38 @@ class Photo2CsvTests(unittest.TestCase):
 
             photo2csv.append_rows(csv_path, [row], photo2csv.EXPECTED_FIELDS)
 
-            content = csv_path.read_text(encoding="utf-8")
+            self.assertTrue(csv_path.read_bytes().startswith(photo2csv.UTF8_BOM))
+            content = csv_path.read_text(encoding="utf-8-sig")
             self.assertIn("\npdd0002,", content)
             self.assertTrue(content.endswith("\n"))
-            with csv_path.open("r", encoding="utf-8", newline="") as file:
+            with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
                 reader = csv.DictReader(file)
                 rows = list(reader)
 
             self.assertEqual([row["image_id"] for row in rows], ["pdd0001", "pdd0002"])
+
+    def test_append_rows_keeps_single_bom_when_existing_csv_already_has_bom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "products.csv"
+            csv_path.write_bytes(photo2csv.UTF8_BOM + (",".join(photo2csv.EXPECTED_FIELDS) + "\n").encode("utf-8"))
+            row = {
+                "image_id": "pdd0001",
+                "platform": "pdd",
+                "category": "食品饮料",
+                "has_sku_info": "0",
+                "title": "新商品",
+                "brand": "新品牌",
+                "sku_spec": "",
+                "price": "12.5",
+                "price_type": "原价",
+                "shop_name": "新店",
+                "capture_time": "20260602",
+                "remark": "",
+            }
+
+            photo2csv.append_rows(csv_path, [row], photo2csv.EXPECTED_FIELDS)
+
+            self.assertEqual(csv_path.read_bytes().count(photo2csv.UTF8_BOM), 1)
 
 
 if __name__ == "__main__":

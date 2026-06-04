@@ -8,6 +8,7 @@
 - 自动生成 `平台标识 + 4位数字` 形式的 `image_id`，例如 `pdd0001`、`ks0001`
 - 将每组第一张图片保存到当前工程目录的 `images/平台标识NNNN.png`
 - 追加数据到当前工程目录的 `product_data_20260525.csv`
+- CSV 使用 UTF-8 带 BOM 编码，兼容 Excel 的「CSV UTF-8」格式，避免中文乱码
 - 写入前自动备份 CSV
 
 ## 安装

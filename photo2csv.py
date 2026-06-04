@@ -81,6 +81,7 @@ CATEGORIES = (
 
 ERROR_TITLE = "识别失败"
 MAX_ERROR_REMARK_LENGTH = 800
+UTF8_BOM = b"\xef\xbb\xbf"
 
 EXPECTED_FIELDS = (
     "image_id",
@@ -915,7 +916,8 @@ def save_as_png(source: Path, destination: Path, *, move: bool) -> None:
 
 def append_rows(csv_path: Path, rows: Sequence[dict[str, str]], fieldnames: Sequence[str]) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    should_write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+    should_write_header = should_write_csv_header(csv_path)
+    ensure_utf8_bom(csv_path)
     if not should_write_header:
         ensure_trailing_newline(csv_path)
 
@@ -925,6 +927,25 @@ def append_rows(csv_path: Path, rows: Sequence[dict[str, str]], fieldnames: Sequ
             writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+
+def should_write_csv_header(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return True
+    if path.stat().st_size == len(UTF8_BOM):
+        return path.read_bytes() == UTF8_BOM
+    return False
+
+
+def ensure_utf8_bom(path: Path) -> None:
+    if not path.exists() or path.stat().st_size == 0:
+        path.write_bytes(UTF8_BOM)
+        return
+
+    content = path.read_bytes()
+    if content.startswith(UTF8_BOM):
+        return
+    path.write_bytes(UTF8_BOM + content)
 
 
 def ensure_trailing_newline(path: Path) -> None:
@@ -961,6 +982,7 @@ def seed_csv_from_template(csv_path: Path, template_csv: Path | None) -> Path | 
 
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(template_csv, csv_path)
+    ensure_utf8_bom(csv_path)
     return csv_path
 
 
