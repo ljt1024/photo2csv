@@ -106,6 +106,11 @@ class Photo2CsvTests(unittest.TestCase):
 
             self.assertTrue(data_url.startswith("data:image/jpeg;base64,"))
 
+    def test_build_recognition_prompt_uses_image_count(self):
+        prompt = photo2csv.build_recognition_prompt(2)
+
+        self.assertIn("这组 2 张同一商品", prompt)
+
     def test_prepare_groups_uses_jpg_destination(self):
         result = photo2csv.RecognitionResult(
             category="食品饮料",
@@ -189,11 +194,26 @@ class Photo2CsvTests(unittest.TestCase):
             self.assertTrue(source.exists())
             self.assertEqual(destination.read_bytes(), b"fake jpg bytes")
 
-    def test_group_paths_requires_multiple_of_three(self):
+    def test_group_paths_requires_multiple_of_default_group_size(self):
         paths = [Path("1.png"), Path("2.png"), Path("3.png"), Path("4.png")]
 
         with self.assertRaises(photo2csv.AppError):
             photo2csv.group_paths(paths)
+
+    def test_group_paths_sequential_uses_custom_group_size(self):
+        paths = [
+            Path("1.jpg"),
+            Path("2.jpg"),
+            Path("3.jpg"),
+            Path("4.jpg"),
+        ]
+
+        groups = photo2csv.group_paths(paths, mode="sequential", group_size=2)
+
+        self.assertEqual(
+            [[path.name for path in group] for group in groups],
+            [["1.jpg", "2.jpg"], ["3.jpg", "4.jpg"]],
+        )
 
     def test_group_paths_by_dash_name(self):
         paths = [
@@ -209,6 +229,19 @@ class Photo2CsvTests(unittest.TestCase):
 
         self.assertEqual([path.name for path in groups[0]], ["1-1.jpg", "1-2.jpg", "1-3.jpg"])
         self.assertEqual([path.name for path in groups[1]], ["2-1.jpg", "2-2.jpg", "2-3.jpg"])
+
+    def test_group_paths_by_dash_name_uses_custom_group_size(self):
+        paths = [
+            Path("test/2-2.jpg"),
+            Path("test/1-2.jpg"),
+            Path("test/1-1.jpg"),
+            Path("test/2-1.jpg"),
+        ]
+
+        groups = photo2csv.group_paths(sorted(paths, key=photo2csv.natural_sort_key), group_size=2)
+
+        self.assertEqual([path.name for path in groups[0]], ["1-1.jpg", "1-2.jpg"])
+        self.assertEqual([path.name for path in groups[1]], ["2-1.jpg", "2-2.jpg"])
 
     def test_collect_images_from_zip_ignores_macos_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:

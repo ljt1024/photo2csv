@@ -60,6 +60,7 @@ DEFAULT_CSV = DEFAULT_OUTPUT_DIR / DEFAULT_CSV_NAME
 DEFAULT_IMAGES_DIR = DEFAULT_OUTPUT_DIR / DEFAULT_IMAGES_DIR_NAME
 DEFAULT_PLATFORM = "pdd"
 PLATFORM_EXAMPLES = ("pdd", "ks", "dy", "jd", "xhs")
+DEFAULT_GROUP_SIZE = 3
 DEFAULT_MODEL = os.environ.get("QWEN_MODEL") or os.environ.get("DASHSCOPE_MODEL") or "qwen3-vl-plus"
 DASHSCOPE_API_BASE = (
     os.environ.get("QWEN_API_BASE")
@@ -196,7 +197,7 @@ def error_recognition_result(message: str) -> RecognitionResult:
 @dataclass(frozen=True)
 class PreparedGroup:
     image_id: str
-    source_images: tuple[Path, Path, Path]
+    source_images: tuple[Path, ...]
     destination_image: Path
     result: RecognitionResult
     csv_row: dict[str, str]
@@ -251,7 +252,7 @@ class QwenVisionRecognizer:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": build_recognition_prompt()},
+                        {"type": "text", "text": build_recognition_prompt(len(image_paths))},
                         *[
                             {
                                 "type": "image_url",
@@ -329,10 +330,10 @@ def format_network_error(exc: BaseException) -> str:
     return message
 
 
-def build_recognition_prompt() -> str:
+def build_recognition_prompt(image_count: int = DEFAULT_GROUP_SIZE) -> str:
     category_text = "、".join(CATEGORIES)
     return f"""
-请从这组三张同一商品的拼多多商品图片中识别信息，并输出 JSON。
+请从这组 {image_count} 张同一商品的拼多多商品图片中识别信息，并输出 JSON。
 
 字段要求：
 - category：必须严格取以下 {len(CATEGORIES)} 个值之一：{category_text}
@@ -624,36 +625,44 @@ def natural_sort_key(path: Path) -> list[Any]:
     return [int(part) if part.isdigit() else part for part in parts]
 
 
-def group_paths(paths: Sequence[Path], *, mode: str = "auto") -> list[tuple[Path, Path, Path]]:
+def group_paths(
+    paths: Sequence[Path],
+    *,
+    mode: str = "auto",
+    group_size: int = DEFAULT_GROUP_SIZE,
+) -> list[tuple[Path, ...]]:
     if not paths:
         raise AppError("没有找到要处理的图片")
+    validate_group_size(group_size)
     if mode not in {"auto", "name", "sequential"}:
         raise AppError(f"未知分组方式：{mode}")
 
     if mode in {"auto", "name"}:
-        grouped = group_paths_by_name(paths)
+        grouped = group_paths_by_name(paths, group_size=group_size)
         if grouped is not None:
             return grouped
         if mode == "name":
-            raise AppError("按命名分组失败：图片名需要类似 1-1.jpg、1-2.jpg、1-3.jpg")
+            raise AppError(f"按命名分组失败：图片名需要类似 {group_name_example(group_size)}")
 
-    return group_paths_sequential(paths)
+    return group_paths_sequential(paths, group_size=group_size)
 
 
-def group_paths_sequential(paths: Sequence[Path]) -> list[tuple[Path, Path, Path]]:
-    if len(paths) % 3 != 0:
-        raise AppError(f"图片数量必须是 3 的倍数；当前数量：{len(paths)}")
+def group_paths_sequential(paths: Sequence[Path], *, group_size: int = DEFAULT_GROUP_SIZE) -> list[tuple[Path, ...]]:
+    validate_group_size(group_size)
+    if len(paths) % group_size != 0:
+        raise AppError(f"图片数量必须是 {group_size} 的倍数；当前数量：{len(paths)}")
 
-    groups: list[tuple[Path, Path, Path]] = []
-    for index in range(0, len(paths), 3):
-        group = tuple(paths[index : index + 3])
-        if len(group) != 3:
+    groups: list[tuple[Path, ...]] = []
+    for index in range(0, len(paths), group_size):
+        group = tuple(paths[index : index + group_size])
+        if len(group) != group_size:
             raise AppError("图片分组失败")
-        groups.append(group)  # type: ignore[arg-type]
+        groups.append(group)
     return groups
 
 
-def group_paths_by_name(paths: Sequence[Path]) -> list[tuple[Path, Path, Path]] | None:
+def group_paths_by_name(paths: Sequence[Path], *, group_size: int = DEFAULT_GROUP_SIZE) -> list[tuple[Path, ...]] | None:
+    validate_group_size(group_size)
     grouped: dict[tuple[str, str], dict[int, Path]] = {}
     matched_count = 0
 
@@ -674,9 +683,9 @@ def group_paths_by_name(paths: Sequence[Path]) -> list[tuple[Path, Path, Path]] 
     if not matched_count:
         return None
 
-    result: list[tuple[Path, Path, Path]] = []
+    result: list[tuple[Path, ...]] = []
     for (_parent, group_name), group in sorted(grouped.items(), key=lambda item: natural_group_key(item[0])):
-        expected_indexes = {1, 2, 3}
+        expected_indexes = set(range(1, group_size + 1))
         actual_indexes = set(group)
         if actual_indexes != expected_indexes:
             missing = sorted(expected_indexes - actual_indexes)
@@ -686,10 +695,23 @@ def group_paths_by_name(paths: Sequence[Path]) -> list[tuple[Path, Path, Path]] 
                 details.append(f"缺少 {missing}")
             if extra:
                 details.append(f"多出 {extra}")
-            raise AppError(f"组 {group_name} 图片序号应为 1、2、3，当前{'; '.join(details)}")
-        result.append((group[1], group[2], group[3]))
+            raise AppError(f"组 {group_name} 图片序号应为 {index_list_text(group_size)}，当前{'; '.join(details)}")
+        result.append(tuple(group[index] for index in range(1, group_size + 1)))
 
     return result
+
+
+def validate_group_size(group_size: int) -> None:
+    if group_size < 1:
+        raise AppError("--group-size 必须是大于等于 1 的整数")
+
+
+def index_list_text(group_size: int) -> str:
+    return "、".join(str(index) for index in range(1, group_size + 1))
+
+
+def group_name_example(group_size: int) -> str:
+    return "、".join(f"1-{index}.jpg" for index in range(1, group_size + 1))
 
 
 def natural_group_key(key: tuple[str, str]) -> list[Any]:
@@ -749,7 +771,7 @@ def image_id_for(number: int, platform: str = DEFAULT_PLATFORM) -> str:
 
 
 def recognize_groups(
-    groups: Sequence[tuple[Path, Path, Path]],
+    groups: Sequence[Sequence[Path]],
     *,
     manual_results_path: Path | None,
     recognizer: QwenVisionRecognizer | None,
@@ -771,7 +793,8 @@ def recognize_groups(
 
     results: list[RecognitionResult] = []
     for index, group in enumerate(groups, start=1):
-        print(f"正在识别第 {index}/{len(groups)} 组：{group[0].name}, {group[1].name}, {group[2].name}")
+        group_names = ", ".join(path.name for path in group)
+        print(f"正在识别第 {index}/{len(groups)} 组：{group_names}")
         try:
             results.append(recognizer.recognize(group))
         except Exception as exc:
@@ -829,7 +852,7 @@ def resolve_platform(args: argparse.Namespace) -> str:
 
 
 def prepare_groups(
-    groups: Sequence[tuple[Path, Path, Path]],
+    groups: Sequence[tuple[Path, ...]],
     results: Sequence[RecognitionResult],
     *,
     csv_path: Path,
@@ -983,6 +1006,8 @@ def ensure_output_targets(csv_path: Path, images_dir: Path, template_csv: Path |
 
 def process(args: argparse.Namespace) -> list[PreparedGroup]:
     csv_path, images_dir, template_csv = resolve_output_paths(args)
+    group_size = args.group_size
+    validate_group_size(group_size)
     platform = resolve_platform(args)
     capture_time = args.capture_time or dt.date.today().strftime("%Y%m%d")
 
@@ -998,7 +1023,7 @@ def process(args: argparse.Namespace) -> list[PreparedGroup]:
 
     collected = collect_image_paths(args)
     try:
-        groups = group_paths(collected.paths, mode=args.group_mode)
+        groups = group_paths(collected.paths, mode=args.group_mode, group_size=group_size)
         validate_source_images(groups)
 
         recognizer: QwenVisionRecognizer | None = None
@@ -1066,17 +1091,18 @@ def print_summary(prepared: Sequence[PreparedGroup], *, csv_path: Path, dry_run:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="识别三张一组的商品图片，追加到产品 CSV，并保存每组第一张图。",
+        description="识别同一商品的一组图片，追加到产品 CSV，并保存每组第一张图。",
     )
-    parser.add_argument("images", nargs="*", help="图片路径或单个 .zip 素材包；图片数量必须是 3 的倍数")
+    parser.add_argument("images", nargs="*", help="图片路径或单个 .zip 素材包；图片数量必须是 --group-size 的倍数")
     parser.add_argument("--input-dir", help="从目录递归读取图片")
     parser.add_argument("--input-zip", help="从 .zip 素材包读取图片，例如 test.zip")
     parser.add_argument(
         "--group-mode",
         choices=("auto", "name", "sequential"),
         default="auto",
-        help="图片分组方式：auto 自动识别 1-1/1-2/1-3；name 强制按命名；sequential 按排序每 3 张一组",
+        help="图片分组方式：auto 自动识别 1-1/1-2/...；name 强制按命名；sequential 按排序和 --group-size 分组",
     )
+    parser.add_argument("--group-size", type=int, default=DEFAULT_GROUP_SIZE, help=f"每组图片数量，默认 {DEFAULT_GROUP_SIZE}")
     parser.add_argument("--output-dir", help=f"输出目录，默认当前工程目录：{DEFAULT_OUTPUT_DIR}")
     parser.add_argument("--csv", help=f"目标 CSV，默认：{DEFAULT_CSV}")
     parser.add_argument("--images-dir", help=f"图片保存目录，默认：{DEFAULT_IMAGES_DIR}")

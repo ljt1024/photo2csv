@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 venv/
 *.csv
+*.csv.*
+images/
+images_mark/
+*.zip

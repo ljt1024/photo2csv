@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"}
-GROUP_SIZE = 3
+DEFAULT_GROUP_SIZE = 3
 
 
 class RenameZipError(Exception):
@@ -19,7 +19,7 @@ class RenameZipError(Exception):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="将图片按每 3 张一组重命名后写入 ZIP，不修改原始图片文件。"
+        description=f"将图片按每 {DEFAULT_GROUP_SIZE} 张一组重命名后写入 ZIP，不修改原始图片文件。"
     )
     parser.add_argument("folder", help="图片文件夹路径，只处理第一层文件")
     parser.add_argument(
@@ -33,6 +33,12 @@ def parse_args(argv):
         choices=("name", "created", "modified"),
         default="name",
         help="排序方式：name 文件名，created 创建时间，modified 修改时间；默认 name",
+    )
+    parser.add_argument(
+        "--group-size",
+        type=int,
+        default=DEFAULT_GROUP_SIZE,
+        help=f"每组图片数量，默认 {DEFAULT_GROUP_SIZE}；例如 2 会生成 1-1、1-2、2-1、2-2",
     )
     parser.add_argument(
         "--output",
@@ -53,6 +59,7 @@ def validate_args(args):
 
     if args.start < 1:
         raise RenameZipError("--start 必须是大于等于 1 的整数。")
+    validate_group_size(args.group_size)
     if not folder.exists():
         raise RenameZipError(f"图片文件夹不存在：{folder}")
     if not folder.is_dir():
@@ -76,6 +83,17 @@ def find_images(folder):
     if not images:
         raise RenameZipError(f"未找到支持的图片文件：{folder}")
     return images
+
+
+def validate_group_size(group_size):
+    if group_size < 1:
+        raise RenameZipError("--group-size 必须是大于等于 1 的整数。")
+
+
+def validate_image_count(images, group_size):
+    validate_group_size(group_size)
+    if len(images) % group_size != 0:
+        raise RenameZipError(f"图片数量必须是 {group_size} 的倍数；当前数量：{len(images)}。")
 
 
 def created_time(path):
@@ -125,17 +143,19 @@ def sort_images(images, sort_mode):
     raise RenameZipError(f"未知排序方式：{sort_mode}")
 
 
-def archive_name(index, start_number, suffix):
-    group_number = start_number + (index // GROUP_SIZE)
-    position = (index % GROUP_SIZE) + 1
+def archive_name(index, start_number, suffix, group_size=DEFAULT_GROUP_SIZE):
+    validate_group_size(group_size)
+    group_number = start_number + (index // group_size)
+    position = (index % group_size) + 1
     return f"{group_number}-{position}{suffix}"
 
 
-def build_archive_plan(images, start_number):
+def build_archive_plan(images, start_number, group_size=DEFAULT_GROUP_SIZE):
+    validate_group_size(group_size)
     planned = []
     used_names = set()
     for index, image in enumerate(images):
-        arcname = archive_name(index, start_number, image.suffix)
+        arcname = archive_name(index, start_number, image.suffix, group_size)
         if arcname in used_names:
             raise RenameZipError(f"ZIP 内文件名冲突：{arcname}")
         used_names.add(arcname)
@@ -153,8 +173,9 @@ def run(argv):
     args = parse_args(argv)
     folder, output = validate_args(args)
     images = find_images(folder)
+    validate_image_count(images, args.group_size)
     sorted_images = sort_images(images, args.sort)
-    planned_images = build_archive_plan(sorted_images, args.start)
+    planned_images = build_archive_plan(sorted_images, args.start, args.group_size)
     write_zip(planned_images, output)
 
     print(f"已创建 ZIP：{output}")

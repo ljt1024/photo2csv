@@ -2,7 +2,7 @@
 
 这个项目根据 `产品图片识别需求文档.md` 实现了一个命令行工具，用于：
 
-- 每 3 张图片作为同一商品的一组
+- 默认每 3 张图片作为同一商品的一组，也可以用 `--group-size` 改成每组 2 张等
 - 调用视觉模型识别标题、品牌、价格、店铺、SKU、品类等字段
 - 运行时输入平台标识，例如 `pdd`、`ks`、`dy`、`jd`、`xhs`
 - 自动生成 `平台标识 + 4位数字` 形式的 `image_id`，例如 `pdd0001`、`ks0001`
@@ -41,10 +41,16 @@ export QWEN_MODEL="qwen-vl-max"
 python photo2csv.py ./img1.png ./img2.png ./img3.png
 ```
 
-一次处理多组时，图片数量必须是 3 的倍数：
+一次处理多组时，图片数量必须是 `--group-size` 的倍数，默认是 3：
 
 ```bash
 python photo2csv.py ./1.png ./2.png ./3.png ./4.png ./5.png ./6.png
+```
+
+如果每组只有 2 张图片：
+
+```bash
+python photo2csv.py ./1-1.jpg ./1-2.jpg ./2-1.jpg ./2-2.jpg --group-size 2
 ```
 
 也可以直接处理你这次给的 zip 素材包格式：
@@ -91,10 +97,27 @@ photo2csv/
 
 多组素材按同样规则命名，例如 `2-1.jpg、2-2.jpg、2-3.jpg`。脚本会自动忽略 `__MACOSX` 和 `._*` 这类 macOS 压缩包元数据。
 
-也可以从目录递归读取，默认会自动识别 `1-1/1-2/1-3` 这种命名；如果没有这种命名，就按排序后每 3 张分一组：
+两张一组时，命名规则就是 `1-1.jpg、1-2.jpg、2-1.jpg、2-2.jpg`，运行 `photo2csv.py` 时加 `--group-size 2`。
+
+也可以从目录递归读取，默认会自动识别 `1-1/1-2/1-3` 这种命名；如果没有这种命名，就按排序后每组 3 张分组：
 
 ```bash
 python photo2csv.py --input-dir ./待处理图片
+```
+
+## 素材重命名打包
+
+`rename_images_zip.py` 默认按每组 3 张生成 `1-1、1-2、1-3` 这类 ZIP 内文件名，不修改原始图片：
+
+```bash
+python rename_images_zip.py ./待处理图片 --output renamed_images.zip
+```
+
+如果每组是 2 张，添加 `--group-size 2`，会生成 `1-1、1-2、2-1、2-2`：
+
+```bash
+python rename_images_zip.py ./待处理图片 --group-size 2 --output renamed_images.zip
+python photo2csv.py renamed_images.zip --group-size 2 --platform ks
 ```
 
 ## 先预览不写入
@@ -138,7 +161,8 @@ python photo2csv.py ./img1.png ./img2.png ./img3.png --manual-json result.json
 - `--images-dir`：首图保存目录，默认当前工程目录的 `images/`
 - `--template-csv`：目标 CSV 不存在时用于初始化和续号的模板 CSV，默认 `/Users/ljt/Downloads/product_data_20260525.csv`
 - `--input-zip`：读取 `.zip` 素材包，也可以直接把单个 zip 路径作为位置参数
-- `--group-mode`：分组方式，`auto` 自动识别命名，`name` 强制按 `1-1/1-2/1-3`，`sequential` 按排序每 3 张
+- `--group-size`：每组图片数量，默认 `3`；例如两张一组用 `--group-size 2`
+- `--group-mode`：分组方式，`auto` 自动识别命名，`name` 强制按 `1-1/1-2/...`，`sequential` 按排序和 `--group-size` 分组
 - `--platform`：平台标识，例如 `pdd`、`ks`、`dy`、`jd`、`xhs`；不传时会提示输入
 - `--capture-time`：采集日期，格式 `YYYYMMDD`，默认当天
 - `--start-number`：手动指定起始编号，例如 `--start-number 21`
