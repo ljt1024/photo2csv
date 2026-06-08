@@ -19,6 +19,22 @@ pip install -r requirements.txt
 
 首图会按输入格式保存：JPG/JPEG 输出 `.jpg`，PNG 输出 `.png`，不会强制转成 PNG。
 
+## 修复 Excel 打开 CSV 中文乱码
+
+如果 `product_data_20260525.csv` 用 Excel 直接打开后中文乱码，执行：
+
+```bash
+python fix_csv_for_excel.py
+```
+
+脚本会默认原地修复当前工程目录下的 `product_data_20260525.csv`，写成 Excel 更容易识别的 UTF-8 带 BOM 格式，并自动生成 `.bak.YYYYMMDD_HHMMSS` 备份。
+
+也可以指定其他 CSV：
+
+```bash
+python fix_csv_for_excel.py ./其他文件.csv
+```
+
 ## 使用千问视觉识别
 
 ```bash
